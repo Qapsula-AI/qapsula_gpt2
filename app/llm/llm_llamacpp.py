@@ -1,0 +1,192 @@
+from typing import List, Dict, Optional
+from llama_cpp import Llama
+from .base import BaseLLM
+import os
+
+
+class LlamaCppLLM(BaseLLM):
+    """LLM реализация с llama.cpp для локальных моделей"""
+    
+    def __init__(
+        self, 
+        model_path: str,
+        temperature: float = 0.7,
+        n_ctx: int = 4096,
+        n_gpu_layers: int = 0,  # Количество слоев на GPU (0 = только CPU)
+        n_threads: int = None,  # None = авто определение
+        verbose: bool = False
+    ):
+        super().__init__(model_path, temperature)
+        
+        # Автоматическое определение потоков
+        if n_threads is None:
+            n_threads = os.cpu_count() or 4
+        
+        print(f"🔧 Загрузка модели: {model_path}")
+        print(f"   Контекст: {n_ctx} токенов")
+        print(f"   GPU слои: {n_gpu_layers}")
+        print(f"   CPU потоки: {n_threads}")
+        
+        try:
+            self.llm = Llama(
+                model_path=model_path,
+                n_ctx=n_ctx,
+                n_gpu_layers=n_gpu_layers,
+                n_threads=n_threads,
+                verbose=verbose
+            )
+            print("✅ Модель загружена успешно!")
+        except Exception as e:
+            print(f"❌ Ошибка загрузки модели: {e}")
+            raise
+    
+    def _create_prompt(
+        self,
+        message: str,
+        context: Optional[List[Dict[str, str]]] = None,
+        system_prompt: str = "Ты полезный AI ассистент. Отвечай на русском языке кратко и по существу."
+    ) -> str:
+        """Создать промпт в формате Llama"""
+        
+        # Для Llama 3 / Saiga формат
+        prompt = f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{system_prompt}<|eot_id|>"
+        
+        # Добавляем контекст
+        if context:
+            for msg in context:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                
+                if role == "user":
+                    prompt += f"<|start_header_id|>user<|end_header_id|>\n\n{content}<|eot_id|>"
+                elif role == "assistant":
+                    prompt += f"<|start_header_id|>assistant<|end_header_id|>\n\n{content}<|eot_id|>"
+        
+        # Добавляем текущее сообщение
+        prompt += f"<|start_header_id|>user<|end_header_id|>\n\n{message}<|eot_id|>"
+        prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n"
+        
+        return prompt
+    
+    async def generate(
+        self,
+        prompt: str,
+        context: Optional[List[Dict[str, str]]] = None,
+        max_tokens: int = 1000
+    ) -> str:
+        """Генерация ответа"""
+        
+        # Создаем полный промпт с контекстом
+        full_prompt = self._create_prompt(prompt, context)
+        
+        try:
+            # Генерация
+            response = self.llm(
+                full_prompt,
+                max_tokens=max_tokens,
+                temperature=self.temperature,
+                top_p=0.95,
+                top_k=40,
+                repeat_penalty=1.1,
+                stop=["<|eot_id|>", "<|end_of_text|>"],
+                echo=False
+            )
+            
+            # Извлекаем текст ответа
+            answer = response['choices'][0]['text'].strip()
+            return answer
+            
+        except Exception as e:
+            return f"Ошибка при генерации: {str(e)}"
+    
+    async def generate_stream(
+        self,
+        prompt: str,
+        context: Optional[List[Dict[str, str]]] = None,
+        max_tokens: int = 1000
+    ):
+        """Генерация с потоковой передачей"""
+        
+        full_prompt = self._create_prompt(prompt, context)
+        
+        try:
+            stream = self.llm(
+                full_prompt,
+                max_tokens=max_tokens,
+                temperature=self.temperature,
+                top_p=0.95,
+                top_k=40,
+                repeat_penalty=1.1,
+                stop=["<|eot_id|>", "<|end_of_text|>"],
+                stream=True,
+                echo=False
+            )
+            
+            for chunk in stream:
+                if chunk and 'choices' in chunk:
+                    text = chunk['choices'][0].get('text', '')
+                    if text:
+                        yield text
+                        
+        except Exception as e:
+            yield f"Ошибка: {str(e)}"
+
+
+class MistralLlamaCppLLM(LlamaCppLLM):
+    """Специализированный класс для Mistral моделей"""
+    
+    def _create_prompt(
+        self,
+        message: str,
+        context: Optional[List[Dict[str, str]]] = None,
+        system_prompt: str = "Ты полезный AI ассистент. Отвечай на русском языке кратко и по существу."
+    ) -> str:
+        """Промпт в формате Mistral/Mixtral"""
+        
+        prompt = f"<s>[INST] {system_prompt}\n\n"
+        
+        # Добавляем контекст
+        if context:
+            for msg in context:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                
+                if role == "user":
+                    prompt += f"{content} [/INST]"
+                elif role == "assistant":
+                    prompt += f"{content}</s>[INST] "
+        
+        # Текущее сообщение
+        prompt += f"{message} [/INST]"
+        
+        return prompt
+
+
+class SaigaLlamaCppLLM(LlamaCppLLM):
+    """Специализированный класс для русскоязычных моделей Saiga"""
+    
+    def _create_prompt(
+        self,
+        message: str,
+        context: Optional[List[Dict[str, str]]] = None,
+        system_prompt: str = "Ты — Сайга, русскоязычный автоматический ассистент. Ты разговариваешь с людьми и помогаешь им."
+    ) -> str:
+        """Промпт для Saiga моделей"""
+        
+        # Формат для Saiga Llama 3
+        prompt = f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{system_prompt}<|eot_id|>"
+        
+        if context:
+            for msg in context:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                
+                if role == "user":
+                    prompt += f"<|start_header_id|>user<|end_header_id|>\n\n{content}<|eot_id|>"
+                elif role == "assistant":
+                    prompt += f"<|start_header_id|>assistant<|end_header_id|>\n\n{content}<|eot_id|>"
+        
+        prompt += f"<|start_header_id|>user<|end_header_id|>\n\n{message}<|eot_id|>"
+        prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n"
+        
+        return prompt
