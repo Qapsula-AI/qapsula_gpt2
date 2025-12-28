@@ -5,8 +5,9 @@ services:
     restart: unless-stopped
     environment:
       - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
     env_file:
       - .env
     volumes:
       - ./data:/app/data
-    command: python -m app.main_app
+    command: python -u -m app.main_app
