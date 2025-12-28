@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+.claude
 .Python
 build/
 develop-eggs/
@@ -56,4 +57,5 @@ docker-compose.override.yml
 .ipynb_checkpoints/
 
 # LLM
+models/
 *.gguf

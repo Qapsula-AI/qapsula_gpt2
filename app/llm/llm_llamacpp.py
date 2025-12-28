@@ -1,7 +1,10 @@
 from typing import List, Dict, Optional
 from llama_cpp import Llama
-from .base import BaseLLM
+from .llm_base import BaseLLM
 import os
+import asyncio
+import time
+import threading
 
 
 class LlamaCppLLM(BaseLLM):
@@ -68,19 +71,19 @@ class LlamaCppLLM(BaseLLM):
         
         return prompt
     
-    async def generate(
-        self,
-        prompt: str,
-        context: Optional[List[Dict[str, str]]] = None,
-        max_tokens: int = 1000
-    ) -> str:
-        """Генерация ответа"""
-        
-        # Создаем полный промпт с контекстом
-        full_prompt = self._create_prompt(prompt, context)
-        
+    def _generate_sync(self, full_prompt: str, max_tokens: int) -> str:
+        """Синхронная генерация (для запуска в отдельном потоке)"""
+        thread_id = threading.current_thread().name
+        print(f"🔧 LLM._generate_sync: запущен в потоке {thread_id}")
+        print(f"📊 LLM._generate_sync: параметры генерации:")
+        print(f"   - max_tokens: {max_tokens}")
+        print(f"   - temperature: {self.temperature}")
+        print(f"   - длина промпта: {len(full_prompt)} символов")
+
+        start_time = time.time()
+
         try:
-            # Генерация
+            print(f"⚡ LLM._generate_sync: вызов self.llm()...")
             response = self.llm(
                 full_prompt,
                 max_tokens=max_tokens,
@@ -91,12 +94,52 @@ class LlamaCppLLM(BaseLLM):
                 stop=["<|eot_id|>", "<|end_of_text|>"],
                 echo=False
             )
-            
-            # Извлекаем текст ответа
+
+            elapsed = time.time() - start_time
+            print(f"✅ LLM._generate_sync: self.llm() завершен за {elapsed:.2f} сек")
+
             answer = response['choices'][0]['text'].strip()
+            print(f"📝 LLM._generate_sync: извлечен ответ ({len(answer)} символов)")
             return answer
-            
+
         except Exception as e:
+            elapsed = time.time() - start_time
+            print(f"❌ LLM._generate_sync: ОШИБКА после {elapsed:.2f} сек")
+            print(f"❌ Тип ошибки: {type(e).__name__}")
+            print(f"❌ Сообщение: {str(e)}")
+            import traceback
+            print(f"❌ Traceback:\n{traceback.format_exc()}")
+            raise
+
+    async def generate(
+        self,
+        prompt: str,
+        context: Optional[List[Dict[str, str]]] = None,
+        max_tokens: int = 1000
+    ) -> str:
+        """Генерация ответа"""
+
+        print(f"🧠 LLM: создание промпта...")
+        # Создаем полный промпт с контекстом
+        full_prompt = self._create_prompt(prompt, context)
+
+        print(f"🧠 LLM: промпт создан ({len(full_prompt)} символов)")
+        print(f"🧠 LLM: начало генерации (max_tokens={max_tokens})...")
+
+        try:
+            # Запускаем синхронную генерацию в отдельном потоке
+            answer = await asyncio.to_thread(
+                self._generate_sync,
+                full_prompt,
+                max_tokens
+            )
+
+            print(f"🧠 LLM: генерация завершена")
+            print(f"🧠 LLM: ответ извлечен ({len(answer)} символов)")
+            return answer
+
+        except Exception as e:
+            print(f"❌ LLM: ошибка при генерации: {e}")
             return f"Ошибка при генерации: {str(e)}"
     
     async def generate_stream(

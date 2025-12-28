@@ -1,6 +1,6 @@
 from typing import List, Dict, Optional
 from openai import AsyncOpenAI
-from .base import BaseLLM
+from .llm_base import BaseLLM
 import os
 
 

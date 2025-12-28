@@ -4,7 +4,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 import pickle
 import os
-from .base import BaseVectorStore
+from .vectorstore_base import BaseVectorStore
 from ..schemas import Document
 
 

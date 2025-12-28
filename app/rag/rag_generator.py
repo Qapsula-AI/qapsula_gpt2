@@ -1,5 +1,5 @@
 from typing import List, Dict, Tuple
-from ..llm.base import BaseLLM
+from ..llm.llm_base import BaseLLM
 from ..schemas import Document
 
 
@@ -73,9 +73,12 @@ class Generator:
         chat_history: List[Dict[str, str]] = None
     ) -> str:
         """Сгенерировать ответ без RAG контекста"""
+        print(f"🤖 Generator: начало генерации ответа без контекста...")
+        print(f"📝 Generator: запрос: {query[:50]}...")
         response = await self.llm.generate(
             prompt=query,
             context=chat_history,
-            max_tokens=1000
+            max_tokens=100  # Уменьшено для быстрой генерации
         )
+        print(f"✅ Generator: ответ получен ({len(response)} символов)")
         return response

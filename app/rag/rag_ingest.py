@@ -2,7 +2,7 @@ import os
 from typing import List
 from pathlib import Path
 from ..schemas import Document
-from ..vectorstore.base import BaseVectorStore
+from ..vectorstore.vectorstore_base import BaseVectorStore
 
 
 class DocumentIngestor:

@@ -4,14 +4,14 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 # Импорты модулей
-from app.llm.openai import OpenAILLM
-from app.llm.llamacpp import LlamaCppLLM, SaigaLlamaCppLLM, MistralLlamaCppLLM
-from app.vectorstore.faiss import FAISSVectorStore
-from app.rag.ingest import DocumentIngestor
-from app.rag.retriever import Retriever
-from app.rag.generator import Generator
-from app.rag.pipeline import RAGPipeline
-from app.api.telegram import TelegramBot
+from app.llm.llm_openai import OpenAILLM
+from app.llm.llm_llamacpp import LlamaCppLLM, SaigaLlamaCppLLM, MistralLlamaCppLLM
+from app.vectorstore.vectorstore_faiss import FAISSVectorStore
+from app.rag.rag_ingest import DocumentIngestor
+from app.rag.rag_retriever import Retriever
+from app.rag.rag_generator import Generator
+from app.rag.rag_pipeline import RAGPipeline
+from app.api.telegram_bot import TelegramBot
 
 
 async def initialize_vectorstore():
@@ -50,64 +50,69 @@ async def initialize_vectorstore():
     return vectorstore
 
 
-async def main():
-    """Главная функция"""
-    
+async def initialize_components():
+    """Асинхронная инициализация компонентов"""
+
     # Загружаем переменные окружения
     load_dotenv()
-    
+
     # Проверяем наличие необходимых токенов
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    
+
     if not telegram_token:
         raise ValueError("TELEGRAM_BOT_TOKEN не найден в .env файле")
-    
-    if not openai_api_key:
-        raise ValueError("OPENAI_API_KEY не найден в .env файле")
-    
+
     print("🚀 Инициализация бота...")
-    
+
     # Инициализируем компоненты
     print("🤖 Инициализация LLM...")
-    
+
     # Выбор LLM: OpenAI или локальная модель
     use_local_model = os.getenv("USE_LOCAL_MODEL", "false").lower() == "true"
-    
+
+    # Проверяем OpenAI ключ только если используется OpenAI
+    if not use_local_model:
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        if not openai_api_key:
+            raise ValueError("OPENAI_API_KEY не найден в .env файле. Установите USE_LOCAL_MODEL=true для использования локальной модели.")
+
     if use_local_model:
         model_path = os.getenv("LOCAL_MODEL_PATH", "./models/saiga_llama3_8b.Q4_K_M.gguf")
         model_type = os.getenv("MODEL_TYPE", "saiga")  # saiga, mistral, llama
-        
+
         print(f"📁 Используется локальная модель: {model_path}")
-        
+
         if model_type == "saiga":
             llm = SaigaLlamaCppLLM(
                 model_path=model_path,
                 temperature=0.7,
                 n_ctx=4096,
-                n_gpu_layers=0  # Увеличьте если есть GPU
+                n_gpu_layers=0,  # Увеличьте если есть GPU
+                verbose=True  # Включаем детальный вывод
             )
         elif model_type == "mistral":
             llm = MistralLlamaCppLLM(
                 model_path=model_path,
                 temperature=0.7,
                 n_ctx=4096,
-                n_gpu_layers=0
+                n_gpu_layers=0,
+                verbose=True  # Включаем детальный вывод
             )
         else:
             llm = LlamaCppLLM(
                 model_path=model_path,
                 temperature=0.7,
                 n_ctx=4096,
-                n_gpu_layers=0
+                n_gpu_layers=0,
+                verbose=True  # Включаем детальный вывод
             )
     else:
         print("☁️  Используется OpenAI API")
         llm = OpenAILLM(model_name="gpt-4-turbo-preview", temperature=0.7)
-    
+
     print("📊 Инициализация векторного хранилища...")
     vectorstore = await initialize_vectorstore()
-    
+
     print("🔍 Настройка RAG pipeline...")
     retriever = Retriever(vectorstore, top_k=3)
     generator = Generator(llm)
@@ -116,22 +121,34 @@ async def main():
         generator=generator,
         use_rag_threshold=0.5
     )
-    
+
     print("💬 Настройка Telegram бота...")
     bot = TelegramBot(token=telegram_token, rag_pipeline=rag_pipeline)
     bot.setup()
-    
+
     print("=" * 50)
     print("✅ Все компоненты инициализированы успешно!")
     print("=" * 50)
-    
+
+    return bot
+
+
+def main():
+    """Главная функция"""
+    # Инициализируем компоненты асинхронно
+    bot = asyncio.run(initialize_components())
+
+    # Создаем новый event loop для бота
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     # Запускаем бота
     bot.run()
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        main()
     except KeyboardInterrupt:
         print("\n👋 Бот остановлен")
     except Exception as e:

@@ -1,6 +1,6 @@
 from typing import List, Dict, Optional
-from .retriever import Retriever
-from .generator import Generator
+from .rag_retriever import Retriever
+from .rag_generator import Generator
 from ..schemas import RAGResponse
 
 
@@ -26,19 +26,22 @@ class RAGPipeline:
     ) -> RAGResponse:
         """
         Обработать запрос через RAG pipeline
-        
+
         Args:
             question: Вопрос пользователя
             chat_history: История чата
             use_rag: Использовать ли RAG
             top_k: Количество документов для retrieval
-        
+
         Returns:
             RAGResponse с ответом и источниками
         """
-        
+
+        print(f"🔍 RAG Pipeline: начало обработки запроса")
+
         if not use_rag:
             # Генерируем ответ без RAG
+            print(f"⚙️ RAG Pipeline: генерация без RAG")
             answer = await self.generator.generate_without_context(
                 query=question,
                 chat_history=chat_history
@@ -48,20 +51,25 @@ class RAGPipeline:
                 sources=[],
                 confidence=0.0
             )
-        
+
         # Retrieval: получаем релевантные документы
+        print(f"🔍 RAG Pipeline: поиск релевантных документов...")
         documents = await self.retriever.retrieve_with_threshold(
             query=question,
             threshold=self.use_rag_threshold,
             k=top_k
         )
-        
+
+        print(f"📚 RAG Pipeline: найдено документов: {len(documents)}")
+
         if not documents:
             # Если релевантных документов нет, отвечаем без RAG
+            print(f"⚙️ RAG Pipeline: документов нет, генерация без контекста...")
             answer = await self.generator.generate_without_context(
                 query=question,
                 chat_history=chat_history
             )
+            print(f"✅ RAG Pipeline: ответ сгенерирован")
             return RAGResponse(
                 answer=answer,
                 sources=[],

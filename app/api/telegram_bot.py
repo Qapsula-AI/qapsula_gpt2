@@ -9,7 +9,7 @@ from telegram.ext import (
     filters
 )
 from ..schemas import ChatHistory
-from ..rag.pipeline import RAGPipeline
+from ..rag.rag_pipeline import RAGPipeline
 
 
 class TelegramBot:
@@ -61,16 +61,20 @@ class TelegramBot:
         """Обработчик текстовых сообщений"""
         user_id = update.effective_user.id
         message_text = update.message.text
-        
+
+        print(f"📩 Получено сообщение от {user_id}: {message_text}")
+
         # Получаем историю чата
         chat_history = self._get_chat_history(user_id)
-        
+
         # Добавляем сообщение пользователя в историю
         chat_history.add_message("user", message_text)
-        
+
         # Показываем, что бот печатает
         await update.message.chat.send_action(action="typing")
-        
+
+        print(f"🔄 Обработка запроса...")
+
         try:
             # Получаем контекст для LLM (последние 10 сообщений)
             context_messages = chat_history.get_context(max_messages=10)
@@ -82,18 +86,22 @@ class TelegramBot:
                 use_rag=True,
                 top_k=3
             )
-            
+
+            print(f"✅ Ответ получен от LLM")
+
             answer = response.answer
-            
+
             # Добавляем информацию об источниках, если они есть
             if response.sources:
                 answer += f"\n\n📚 Источники: {', '.join(response.sources)}"
-            
+
             # Добавляем ответ в историю
             chat_history.add_message("assistant", answer)
-            
+
             # Отправляем ответ
             await update.message.reply_text(answer)
+
+            print(f"📤 Ответ отправлен пользователю")
             
         except Exception as e:
             error_message = f"Произошла ошибка: {str(e)}"

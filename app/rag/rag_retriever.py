@@ -1,5 +1,5 @@
 from typing import List, Tuple
-from ..vectorstore.base import BaseVectorStore
+from ..vectorstore.vectorstore_base import BaseVectorStore
 from ..schemas import Document
 
 

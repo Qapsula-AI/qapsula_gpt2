@@ -1,0 +1,1 @@
+"""RAG модуль - Retrieval-Augmented Generation"""

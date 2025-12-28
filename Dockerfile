@@ -11,4 +11,4 @@ RUN mkdir -p /app/data/vectorstore /app/data/documents
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "-m", "app.main"]
+CMD ["python", "-m", "app.main_app"]
