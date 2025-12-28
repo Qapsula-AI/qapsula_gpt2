@@ -1,14 +1,16 @@
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
+# Копируем requirements и устанавливаем зависимости
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app/ ./app/
+# Копируем весь проект
+COPY . .
 
-RUN mkdir -p /app/data/vectorstore /app/data/documents
+# ВАЖНО: Добавляем /app в PYTHONPATH
+ENV PYTHONPATH=/app
 
-ENV PYTHONUNBUFFERED=1
-
+# Запускаем приложение
 CMD ["python", "-m", "app.main_app"]
