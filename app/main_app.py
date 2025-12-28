@@ -6,6 +6,7 @@ from pathlib import Path
 # Импорты модулей
 from app.llm.llm_openai import OpenAILLM
 from app.llm.llm_llamacpp import LlamaCppLLM, SaigaLlamaCppLLM, MistralLlamaCppLLM
+from app.llm.llm_openrouter import OpenRouterLLM
 from app.vectorstore.vectorstore_faiss import FAISSVectorStore
 from app.rag.rag_ingest import DocumentIngestor
 from app.rag.rag_retriever import Retriever
@@ -17,42 +18,45 @@ from app.api.telegram_bot import TelegramBot
 async def initialize_vectorstore():
     """Инициализация векторного хранилища"""
     vectorstore = FAISSVectorStore()
-    
+
     # Путь к векторному хранилищу
     vector_store_path = os.getenv("VECTOR_STORE_PATH", "./data/vectorstore")
-    
+
     # Пытаемся загрузить существующее хранилище
     if os.path.exists(f"{vector_store_path}.index"):
         print("📂 Загрузка существующего векторного хранилища...")
         await vectorstore.load(vector_store_path)
-        print(f"✓ Загружено {vectorstore.index.ntotal} векторов")
+        try:
+            count = vectorstore.index.ntotal
+        except Exception:
+            count = "неизвестно"
+        print(f"✓ Загружено {count} векторов")
     else:
         print("🆕 Создание нового векторного хранилища...")
-        
+
         # Загружаем документы из директории, если она существует
         documents_path = os.getenv("DOCUMENTS_PATH", "./data/documents")
-        
+
         if os.path.exists(documents_path):
             ingestor = DocumentIngestor(vectorstore)
             total_chunks = await ingestor.ingest_directory(
                 documents_path,
-                extensions=['.txt', '.md']
+                extensions=[".txt", ".md"]
             )
             print(f"✓ Загружено {total_chunks} чанков из {documents_path}")
-            
+
             # Сохраняем векторное хранилище
             await vectorstore.save(vector_store_path)
             print(f"✓ Векторное хранилище сохранено в {vector_store_path}")
         else:
             print(f"⚠ Директория с документами не найдена: {documents_path}")
             print("Бот будет работать без RAG контекста")
-    
+
     return vectorstore
 
 
 async def initialize_components():
     """Асинхронная инициализация компонентов"""
-
     # Загружаем переменные окружения
     load_dotenv()
 
@@ -67,15 +71,19 @@ async def initialize_components():
     # Инициализируем компоненты
     print("🤖 Инициализация LLM...")
 
-    # Выбор LLM: OpenAI или локальная модель
+    # Выбор LLM: локальная модель, OpenRouter или OpenAI
     use_local_model = os.getenv("USE_LOCAL_MODEL", "false").lower() == "true"
+    use_openrouter = os.getenv("USE_OPENROUTER", "false").lower() == "true"
 
-    # Проверяем OpenAI ключ только если используется OpenAI
-    if not use_local_model:
+    # Проверяем OPENAI_API_KEY только если будем использовать OpenAI (не локальная модель и не OpenRouter)
+    if not use_local_model and not use_openrouter:
         openai_api_key = os.getenv("OPENAI_API_KEY")
         if not openai_api_key:
-            raise ValueError("OPENAI_API_KEY не найден в .env файле. Установите USE_LOCAL_MODEL=true для использования локальной модели.")
+            raise ValueError(
+                "OPENAI_API_KEY не найден в .env файле. Установите USE_LOCAL_MODEL=true или USE_OPENROUTER=true для использования альтернативных провайдеров."
+            )
 
+    # Создаём экземпляр нужной LLM
     if use_local_model:
         model_path = os.getenv("LOCAL_MODEL_PATH", "./models/saiga_llama3_8b.Q4_K_M.gguf")
         model_type = os.getenv("MODEL_TYPE", "saiga")  # saiga, mistral, llama
@@ -85,41 +93,61 @@ async def initialize_components():
         if model_type == "saiga":
             llm = SaigaLlamaCppLLM(
                 model_path=model_path,
-                temperature=0.7,
-                n_ctx=4096,
-                n_gpu_layers=0,  # Увеличьте если есть GPU
-                verbose=True  # Включаем детальный вывод
+                temperature=float(os.getenv("LOCAL_MODEL_TEMPERATURE", 0.7)),
+                n_ctx=int(os.getenv("LOCAL_MODEL_N_CTX", 4096)),
+                n_gpu_layers=int(os.getenv("LOCAL_MODEL_N_GPU_LAYERS", 0)),
+                verbose=os.getenv("LOCAL_MODEL_VERBOSE", "true").lower() == "true"
             )
         elif model_type == "mistral":
             llm = MistralLlamaCppLLM(
                 model_path=model_path,
-                temperature=0.7,
-                n_ctx=4096,
-                n_gpu_layers=0,
-                verbose=True  # Включаем детальный вывод
+                temperature=float(os.getenv("LOCAL_MODEL_TEMPERATURE", 0.7)),
+                n_ctx=int(os.getenv("LOCAL_MODEL_N_CTX", 4096)),
+                n_gpu_layers=int(os.getenv("LOCAL_MODEL_N_GPU_LAYERS", 0)),
+                verbose=os.getenv("LOCAL_MODEL_VERBOSE", "true").lower() == "true"
             )
         else:
             llm = LlamaCppLLM(
                 model_path=model_path,
-                temperature=0.7,
-                n_ctx=4096,
-                n_gpu_layers=0,
-                verbose=True  # Включаем детальный вывод
+                temperature=float(os.getenv("LOCAL_MODEL_TEMPERATURE", 0.7)),
+                n_ctx=int(os.getenv("LOCAL_MODEL_N_CTX", 4096)),
+                n_gpu_layers=int(os.getenv("LOCAL_MODEL_N_GPU_LAYERS", 0)),
+                verbose=os.getenv("LOCAL_MODEL_VERBOSE", "true").lower() == "true"
             )
     else:
-        print("☁️  Используется OpenAI API")
-        llm = OpenAILLM(model_name="gpt-4-turbo-preview", temperature=0.7)
+        # Облачные провайдеры
+        if use_openrouter:
+            openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+            if not openrouter_api_key:
+                raise ValueError("OPENROUTER_API_KEY не найден в .env (USE_OPENROUTER=true).")
+            print("☁️  Используется OpenRouter API")
+            llm = OpenRouterLLM(
+                model_name=os.getenv("OPENROUTER_MODEL", "openai/gpt-4o"),
+                temperature=float(os.getenv("OPENROUTER_TEMPERATURE", 0.7)),
+                api_key=openrouter_api_key,
+                extra_headers={
+                    "X-Title": os.getenv("OPENROUTER_X_TITLE", "qapsula_gpt2"),
+                    "HTTP-Referer": os.getenv("OPENROUTER_REFERER", "")
+                }
+            )
+        else:
+            print("☁️  Используется OpenAI API")
+            llm = OpenAILLM(
+                model_name=os.getenv("OPENAI_MODEL", "gpt-4-turbo-preview"),
+                temperature=float(os.getenv("OPENAI_TEMPERATURE", 0.7)),
+                api_key=os.getenv("OPENAI_API_KEY")
+            )
 
     print("📊 Инициализация векторного хранилища...")
     vectorstore = await initialize_vectorstore()
 
     print("🔍 Настройка RAG pipeline...")
-    retriever = Retriever(vectorstore, top_k=3)
+    retriever = Retriever(vectorstore, top_k=int(os.getenv("RAG_TOP_K", 3)))
     generator = Generator(llm)
     rag_pipeline = RAGPipeline(
         retriever=retriever,
         generator=generator,
-        use_rag_threshold=0.5
+        use_rag_threshold=float(os.getenv("USE_RAG_THRESHOLD", 0.5))
     )
 
     print("💬 Настройка Telegram бота...")
@@ -143,7 +171,11 @@ def main():
     asyncio.set_event_loop(loop)
 
     # Запускаем бота
-    bot.run()
+    try:
+        bot.run()
+    except Exception as e:
+        print(f"❌ Ошибка при запуске бота: {e}")
+        raise
 
 
 if __name__ == "__main__":
