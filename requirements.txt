@@ -2,16 +2,16 @@ python-telegram-bot==20.7
 python-dotenv==1.0.0
 faiss-cpu==1.13.2
 sentence-transformers>=2.7.0
-pydantic==2.5.0
+pydantic>=2.0,<3.0  # Убрали жесткую версию
 aiohttp==3.9.1
 openai>=1.0.0
 tiktoken==0.5.2
 llama-cpp-python>=0.3.0
-langchain==0.1.0
-langchain-community==0.0.10
-fastapi==0.104.0
+langchain>=0.1.0,<0.2.0  # Обновили до более гибкой версии
+langchain-community>=0.0.10,<0.1.0
+fastapi>=0.104.0,<0.110.0
 uvicorn==0.24.0
-numpy>=1.25.0,<2.0.0  # Изменено с 1.24.0 на совместимую версию
-chromadb==0.4.0
+numpy>=1.25.0,<2.0.0
+chromadb>=0.4.22,<0.5.0  # Обновили до версии с поддержкой pydantic 2
 pyyaml==6.0
-sqlalchemy==2.0.0
+sqlalchemy>=2.0.0,<2.1.0
