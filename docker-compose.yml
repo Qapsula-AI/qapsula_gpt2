@@ -1,16 +1,12 @@
-version: '3.8'
-
 services:
   telegram-bot:
     build: .
     container_name: telegram-rag-bot
     restart: unless-stopped
+    environment:
+      - PYTHONPATH=/app
     env_file:
       - .env
     volumes:
       - ./data:/app/data
-      - ./app:/app/app
-    environment:
-      - PYTHONUNBUFFERED=1
-      - VECTOR_STORE_PATH=/app/data/vectorstore
-      - DOCUMENTS_PATH=/app/data/documents
+    command: python -m app.main_app
