@@ -53,17 +53,33 @@ DOCUMENTS_PATH=./data/documents
 
 Сохраните: `Ctrl+O`, `Enter`, `Ctrl+X`
 
-## Шаг 6: Запуск скрипта деплоя
+## Шаг 6: Настройка окружения и запуск скрипта деплоя
 
 ```bash
-chmod +x deploy.sh
-./deploy.sh
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+sed -i 's/\r$//' deploy_script.sh
+chmod +x deploy_script.sh
+./deploy_script.sh
 ```
 
 Скрипт автоматически:
 - Установит Docker и Docker Compose
 - Создаст необходимые директории
 - Соберет и запустит контейнеры
+
+# Устанавливаем компиляторы и зависимости
+apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    gcc \
+    g++ \
+    python3-dev \
+    libcurl4-openssl-dev
+
+sudo docker-compose down
+sudo docker-compose up -d --build
 
 ## Шаг 7: Проверка статуса
 
