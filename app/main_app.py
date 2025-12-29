@@ -186,3 +186,33 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"❌ Ошибка: {e}")
         raise
+    
+async def run_fastapi():
+    """Запуск FastAPI в отдельном потоке."""
+    import uvicorn
+    from app.api.fastapi_app import app as fastapi_app
+    
+    # Передаём RAG pipeline в FastAPI
+    from app.api import fastapi_app as fa
+    fa.rag_pipeline = rag_pipeline  # Ваш глобальный RAG pipeline
+    fa.llm = llm  # Ваш LLM
+    
+    config = uvicorn.Config(
+        fastapi_app,
+        host="0.0.0.0",
+        port=8000,
+        log_level="info"
+    )
+    server = uvicorn.Server(config)
+    await server.serve()
+
+
+async def main():
+    """Главная функция."""
+    # ... существующий код инициализации ...
+    
+    # Запускаем FastAPI и Telegram бота параллельно
+    await asyncio.gather(
+        run_fastapi(),
+        bot.start()
+    )

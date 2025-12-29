@@ -10,4 +10,6 @@ services:
       - .env
     volumes:
       - ./data:/app/data
+    ports:
+      - "8000:8000"  # Добавили порт для FastAPI
     command: python -u -m app.main_app
