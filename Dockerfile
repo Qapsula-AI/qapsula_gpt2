@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     g++ \
     make \
     cmake \
+    net-tools \          # для netstat
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -11,5 +11,10 @@ services:
     volumes:
       - ./data:/app/data
     ports:
-      - "8000:8000"  # Добавили порт для FastAPI
-    command: python -u -m app.main_app
+      - "8000:8000"  # Порт для FastAPI
+    command: >
+      sh -c "
+      echo '🚀 Запуск FastAPI на порту 8000...' &&
+      uvicorn app.fastapi_app:app --host 0.0.0.0 --port 8000 &
+      echo '🤖 Запуск Telegram бота...' &&
+      python -u -m app.main_app
