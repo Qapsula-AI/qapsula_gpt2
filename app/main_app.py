@@ -1,218 +1,247 @@
+"""
+Главное приложение с поддержкой мультитенантности.
+Запускает FastAPI и множественные Telegram боты параллельно.
+"""
 import os
 import asyncio
 from dotenv import load_dotenv
 from pathlib import Path
+import uvicorn
 
-# Импорты модулей
-from app.llm.llm_openai import OpenAILLM
-from app.llm.llm_llamacpp import LlamaCppLLM, SaigaLlamaCppLLM, MistralLlamaCppLLM
-from app.llm.llm_openrouter import OpenRouterLLM
-from app.vectorstore.vectorstore_faiss import FAISSVectorStore
-from app.rag.rag_ingest import DocumentIngestor
-from app.rag.rag_retriever import Retriever
-from app.rag.rag_generator import Generator
-from app.rag.rag_pipeline import RAGPipeline
+from app.core.rag_manager import RAGManager
 from app.api.telegram_bot import TelegramBot
+from app.api.fastapi_app import app as fastapi_app
 
 
-async def initialize_vectorstore():
-    """Инициализация векторного хранилища"""
-    vectorstore = FAISSVectorStore()
-
-    # Путь к векторному хранилищу
-    vector_store_path = os.getenv("VECTOR_STORE_PATH", "./data/vectorstore")
-
-    # Пытаемся загрузить существующее хранилище
-    if os.path.exists(f"{vector_store_path}.index"):
-        print("📂 Загрузка существующего векторного хранилища...")
-        await vectorstore.load(vector_store_path)
-        try:
-            count = vectorstore.index.ntotal
-        except Exception:
-            count = "неизвестно"
-        print(f"✓ Загружено {count} векторов")
-    else:
-        print("🆕 Создание нового векторного хранилища...")
-
-        # Загружаем документы из директории, если она существует
-        documents_path = os.getenv("DOCUMENTS_PATH", "./data/documents")
-
-        if os.path.exists(documents_path):
-            ingestor = DocumentIngestor(vectorstore)
-            total_chunks = await ingestor.ingest_directory(
-                documents_path,
-                extensions=[".txt", ".md"]
-            )
-            print(f"✓ Загружено {total_chunks} чанков из {documents_path}")
-
-            # Сохраняем векторное хранилище
-            await vectorstore.save(vector_store_path)
-            print(f"✓ Векторное хранилище сохранено в {vector_store_path}")
-        else:
-            print(f"⚠ Директория с документами не найдена: {documents_path}")
-            print("Бот будет работать без RAG контекста")
-
-    return vectorstore
+# Загружаем переменные окружения
+load_dotenv()
 
 
-async def initialize_components():
-    """Асинхронная инициализация компонентов"""
-    # Загружаем переменные окружения
-    load_dotenv()
-
-    # Проверяем наличие необходимых токенов
-    telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
-
-    if not telegram_token:
-        raise ValueError("TELEGRAM_BOT_TOKEN не найден в .env файле")
-
-    print("🚀 Инициализация бота...")
-
-    # Инициализируем компоненты
-    print("🤖 Инициализация LLM...")
-
-    # Выбор LLM: локальная модель, OpenRouter или OpenAI
-    use_local_model = os.getenv("USE_LOCAL_MODEL", "false").lower() == "true"
-    use_openrouter = os.getenv("USE_OPENROUTER", "false").lower() == "true"
-
-    # Проверяем OPENAI_API_KEY только если будем использовать OpenAI (не локальная модель и не OpenRouter)
-    if not use_local_model and not use_openrouter:
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-        if not openai_api_key:
-            raise ValueError(
-                "OPENAI_API_KEY не найден в .env файле. Установите USE_LOCAL_MODEL=true или USE_OPENROUTER=true для использования альтернативных провайдеров."
-            )
-
-    # Создаём экземпляр нужной LLM
-    if use_local_model:
-        model_path = os.getenv("LOCAL_MODEL_PATH", "./models/saiga_llama3_8b.Q4_K_M.gguf")
-        model_type = os.getenv("MODEL_TYPE", "saiga")  # saiga, mistral, llama
-
-        print(f"📁 Используется локальная модель: {model_path}")
-
-        if model_type == "saiga":
-            llm = SaigaLlamaCppLLM(
-                model_path=model_path,
-                temperature=float(os.getenv("LOCAL_MODEL_TEMPERATURE", 0.7)),
-                n_ctx=int(os.getenv("LOCAL_MODEL_N_CTX", 4096)),
-                n_gpu_layers=int(os.getenv("LOCAL_MODEL_N_GPU_LAYERS", 0)),
-                verbose=os.getenv("LOCAL_MODEL_VERBOSE", "true").lower() == "true"
-            )
-        elif model_type == "mistral":
-            llm = MistralLlamaCppLLM(
-                model_path=model_path,
-                temperature=float(os.getenv("LOCAL_MODEL_TEMPERATURE", 0.7)),
-                n_ctx=int(os.getenv("LOCAL_MODEL_N_CTX", 4096)),
-                n_gpu_layers=int(os.getenv("LOCAL_MODEL_N_GPU_LAYERS", 0)),
-                verbose=os.getenv("LOCAL_MODEL_VERBOSE", "true").lower() == "true"
-            )
-        else:
-            llm = LlamaCppLLM(
-                model_path=model_path,
-                temperature=float(os.getenv("LOCAL_MODEL_TEMPERATURE", 0.7)),
-                n_ctx=int(os.getenv("LOCAL_MODEL_N_CTX", 4096)),
-                n_gpu_layers=int(os.getenv("LOCAL_MODEL_N_GPU_LAYERS", 0)),
-                verbose=os.getenv("LOCAL_MODEL_VERBOSE", "true").lower() == "true"
-            )
-    else:
-        # Облачные провайдеры
-        if use_openrouter:
-            openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
-            if not openrouter_api_key:
-                raise ValueError("OPENROUTER_API_KEY не найден в .env (USE_OPENROUTER=true).")
-            print("☁️  Используется OpenRouter API")
-            llm = OpenRouterLLM(
-                model_name=os.getenv("OPENROUTER_MODEL", "openai/gpt-4o"),
-                temperature=float(os.getenv("OPENROUTER_TEMPERATURE", 0.7)),
-                api_key=openrouter_api_key,
-                extra_headers={
-                    "X-Title": os.getenv("OPENROUTER_X_TITLE", "qapsula_gpt2"),
-                    "HTTP-Referer": os.getenv("OPENROUTER_REFERER", "")
-                }
-            )
-        else:
-            print("☁️  Используется OpenAI API")
-            llm = OpenAILLM(
-                model_name=os.getenv("OPENAI_MODEL", "gpt-4-turbo-preview"),
-                temperature=float(os.getenv("OPENAI_TEMPERATURE", 0.7)),
-                api_key=os.getenv("OPENAI_API_KEY")
-            )
-
-    print("📊 Инициализация векторного хранилища...")
-    vectorstore = await initialize_vectorstore()
-
-    print("🔍 Настройка RAG pipeline...")
-    retriever = Retriever(vectorstore, top_k=int(os.getenv("RAG_TOP_K", 3)))
-    generator = Generator(llm)
-    rag_pipeline = RAGPipeline(
-        retriever=retriever,
-        generator=generator,
-        use_rag_threshold=float(os.getenv("USE_RAG_THRESHOLD", 0.5))
-    )
-
-    print("💬 Настройка Telegram бота...")
-    bot = TelegramBot(token=telegram_token, rag_pipeline=rag_pipeline)
-    bot.setup()
-
-    print("=" * 50)
-    print("✅ Все компоненты инициализированы успешно!")
-    print("=" * 50)
-
-    return bot
-
-
-def main():
-    """Главная функция"""
-    # Инициализируем компоненты асинхронно
-    bot = asyncio.run(initialize_components())
-
-    # Создаем новый event loop для бота
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    # Запускаем бота
+async def run_telegram_bot(token: str, tenant_id: str, rag_manager: RAGManager):
+    """
+    Запуск одного Telegram бота для конкретного клиента.
+    
+    Args:
+        token: Telegram Bot Token
+        tenant_id: ID клиента (например, client1, client2)
+        rag_manager: Общий менеджер RAG
+    """
     try:
-        bot.run()
+        print(f"🤖 Запуск Telegram бота для {tenant_id}...")
+        
+        # Создаём инстанс бота
+        bot = TelegramBot(
+            token=token,
+            tenant_id=tenant_id,
+            rag_manager=rag_manager
+        )
+        
+        # Инициализируем бота
+        await bot.initialize()
+        
+        # Запускаем бота
+        await bot.start()
+        
+        print(f"✅ Telegram бот {tenant_id} запущен успешно")
+        
+        # Держим бота запущенным
+        await asyncio.Event().wait()
+        
     except Exception as e:
-        print(f"❌ Ошибка при запуске бота: {e}")
+        print(f"❌ Ошибка запуска бота {tenant_id}: {e}")
+        raise
+
+
+async def run_fastapi(rag_manager: RAGManager):
+    """
+    Запуск FastAPI сервера.
+    
+    Args:
+        rag_manager: Общий менеджер RAG для всех клиентов
+    """
+    try:
+        print("🌐 Запуск FastAPI сервера...")
+        
+        # Передаём RAG Manager в FastAPI приложение
+        fastapi_app.state.rag_manager = rag_manager
+        
+        # Конфигурация Uvicorn
+        config = uvicorn.Config(
+            fastapi_app,
+            host="0.0.0.0",
+            port=int(os.getenv("API_PORT", 8000)),
+            log_level="info",
+            access_log=True
+        )
+        
+        server = uvicorn.Server(config)
+        await server.serve()
+        
+    except Exception as e:
+        print(f"❌ Ошибка запуска FastAPI: {e}")
+        raise
+
+
+async def initialize_system():
+    """
+    Инициализация всей системы.
+    
+    Returns:
+        tuple: (rag_manager, bot_configs)
+    """
+    print("=" * 60)
+    print("🚀 Инициализация Multi-Tenant системы...")
+    print("=" * 60)
+    
+    # Создаём единственный экземпляр RAG Manager (Singleton)
+    rag_manager = RAGManager()
+    
+    # Собираем конфигурации ботов из переменных окружения
+    # Формат: TELEGRAM_BOT_<TENANT_ID>=<TOKEN>
+    # Пример: TELEGRAM_BOT_CLIENT1=123456:ABC...
+    #         TELEGRAM_BOT_CLIENT2=789012:DEF...
+    
+    bot_configs = []
+    
+    for key, value in os.environ.items():
+        if key.startswith("TELEGRAM_BOT_"):
+            # Извлекаем tenant_id из имени переменной
+            tenant_id = key.replace("TELEGRAM_BOT_", "").lower()
+            token = value
+            
+            if token and token.strip():
+                print(f"📱 Найден бот для клиента: {tenant_id}")
+                bot_configs.append({
+                    "tenant_id": tenant_id,
+                    "token": token
+                })
+    
+    # Если не найдено ни одного бота, используем дефолтный из TELEGRAM_BOT_TOKEN
+    if not bot_configs:
+        default_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        if default_token:
+            print("📱 Используется дефолтный бот (tenant: default)")
+            bot_configs.append({
+                "tenant_id": "default",
+                "token": default_token
+            })
+        else:
+            print("⚠️  Telegram боты не настроены")
+    
+    # Автоматически инициализируем RAG для всех найденных клиентов
+    # (проверяем директории в data/)
+    data_dir = Path("./data")
+    if data_dir.exists():
+        for tenant_dir in data_dir.iterdir():
+            if tenant_dir.is_dir():
+                tenant_id = tenant_dir.name
+                
+                # Пропускаем служебные директории
+                if tenant_id in ['vectorstore', 'documents', '__pycache__']:
+                    continue
+                
+                print(f"📦 Обнаружена директория клиента: {tenant_id}")
+                
+                try:
+                    # Инициализируем RAG для этого клиента
+                    await rag_manager.initialize_tenant(tenant_id)
+                except Exception as e:
+                    print(f"⚠️  Ошибка инициализации RAG для {tenant_id}: {e}")
+                    print(f"   RAG для {tenant_id} будет инициализирован при первом запросе")
+    
+    print("=" * 60)
+    print(f"✅ Система инициализирована")
+    print(f"   Активных клиентов: {len(rag_manager.list_tenants())}")
+    print(f"   Telegram ботов: {len(bot_configs)}")
+    print("=" * 60)
+    
+    return rag_manager, bot_configs
+
+
+async def main():
+    """
+    Главная функция запуска системы.
+    Запускает FastAPI и все Telegram боты параллельно.
+    """
+    try:
+        # Инициализация системы
+        rag_manager, bot_configs = await initialize_system()
+        
+        # Собираем задачи для параллельного выполнения
+        tasks = []
+        
+        # 1. FastAPI сервер (обязательно)
+        tasks.append(
+            asyncio.create_task(
+                run_fastapi(rag_manager),
+                name="FastAPI-Server"
+            )
+        )
+        
+        # 2. Telegram боты (если есть)
+        for bot_config in bot_configs:
+            tasks.append(
+                asyncio.create_task(
+                    run_telegram_bot(
+                        token=bot_config["token"],
+                        tenant_id=bot_config["tenant_id"],
+                        rag_manager=rag_manager
+                    ),
+                    name=f"TelegramBot-{bot_config['tenant_id']}"
+                )
+            )
+        
+        if not tasks:
+            print("❌ Нет задач для запуска")
+            return
+        
+        print("\n" + "=" * 60)
+        print("🎯 Запуск всех сервисов...")
+        print("=" * 60)
+        
+        for task in tasks:
+            print(f"   ▶️  {task.get_name()}")
+        
+        print("=" * 60 + "\n")
+        
+        # Запускаем все задачи параллельно
+        await asyncio.gather(*tasks, return_exceptions=True)
+        
+    except KeyboardInterrupt:
+        print("\n" + "=" * 60)
+        print("👋 Получен сигнал остановки (Ctrl+C)")
+        print("=" * 60)
+        
+    except Exception as e:
+        print("\n" + "=" * 60)
+        print(f"❌ Критическая ошибка: {e}")
+        print("=" * 60)
+        raise
+    
+    finally:
+        print("\n" + "=" * 60)
+        print("🛑 Остановка всех сервисов...")
+        print("=" * 60)
+
+
+def run():
+    """
+    Точка входа в приложение.
+    Запускается через: python -m app.main_app
+    """
+    try:
+        # Запускаем главную асинхронную функцию
+        asyncio.run(main())
+        
+    except KeyboardInterrupt:
+        print("\n👋 Приложение остановлено пользователем")
+        
+    except Exception as e:
+        print(f"\n❌ Фатальная ошибка: {e}")
+        import traceback
+        traceback.print_exc()
         raise
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\n👋 Бот остановлен")
-    except Exception as e:
-        print(f"❌ Ошибка: {e}")
-        raise
-    
-async def run_fastapi():
-    """Запуск FastAPI в отдельном потоке."""
-    import uvicorn
-    from app.api.fastapi_app import app as fastapi_app
-    
-    # Передаём RAG pipeline в FastAPI
-    from app.api import fastapi_app as fa
-    fa.rag_pipeline = rag_pipeline  # Ваш глобальный RAG pipeline
-    fa.llm = llm  # Ваш LLM
-    
-    config = uvicorn.Config(
-        fastapi_app,
-        host="0.0.0.0",
-        port=8000,
-        log_level="info"
-    )
-    server = uvicorn.Server(config)
-    await server.serve()
-
-
-async def main():
-    """Главная функция."""
-    # ... существующий код инициализации ...
-    
-    # Запускаем FastAPI и Telegram бота параллельно
-    await asyncio.gather(
-        run_fastapi(),
-        bot.start()
-    )
+    run()
