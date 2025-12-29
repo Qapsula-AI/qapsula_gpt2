@@ -20,11 +20,13 @@ class OpenRouterLLM(BaseLLM):
         self,
         model_name: str = "openai/gpt-4o",
         temperature: float = 0.7,
+        max_tokens: int = 1000,  # ← ДОБАВЛЯЕМ ЭТОТ ПАРАМЕТР!
         api_key: Optional[str] = None,
         extra_headers: Optional[dict] = None,
     ):
         super().__init__(model_name, temperature)
         self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
+        self.max_tokens = max_tokens  # ← Сохраняем значение по умолчанию
         if not self.api_key:
             raise ValueError("OPENROUTER_API_KEY is required for OpenRouterLLM")
         self.extra_headers = extra_headers or {}
@@ -43,8 +45,11 @@ class OpenRouterLLM(BaseLLM):
         self,
         prompt: str,
         context: Optional[List[Dict[str, str]]] = None,
-        max_tokens: int = 1000
+        max_tokens: Optional[int] = None  # ← Делаем опциональным
     ) -> str:
+        # Используем переданный max_tokens или значение по умолчанию из __init__
+        tokens_to_use = max_tokens if max_tokens is not None else self.max_tokens
+        
         messages = []
         messages.append({
             "role": "system",
@@ -58,7 +63,7 @@ class OpenRouterLLM(BaseLLM):
             "model": self.model_name,
             "messages": messages,
             "temperature": float(self.temperature),
-            "max_tokens": int(max_tokens),
+            "max_tokens": int(tokens_to_use),
             "stream": False
         }
 
@@ -84,12 +89,15 @@ class OpenRouterLLM(BaseLLM):
         self,
         prompt: str,
         context: Optional[List[Dict[str, str]]] = None,
-        max_tokens: int = 1000
+        max_tokens: Optional[int] = None  # ← Делаем опциональным
     ) -> AsyncGenerator[str, None]:
         """
         Возвращает асинхронный генератор токенов / чанков.
         OpenRouter возвращает построчный стрим (каждая линия — JSON или SSE-подобная).
         """
+        # Используем переданный max_tokens или значение по умолчанию из __init__
+        tokens_to_use = max_tokens if max_tokens is not None else self.max_tokens
+        
         messages = []
         messages.append({
             "role": "system",
@@ -103,7 +111,7 @@ class OpenRouterLLM(BaseLLM):
             "model": self.model_name,
             "messages": messages,
             "temperature": float(self.temperature),
-            "max_tokens": int(max_tokens),
+            "max_tokens": int(tokens_to_use),
             "stream": True
         }
 

@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   telegram-bot:
     build: .
@@ -10,12 +12,15 @@ services:
       - .env
     volumes:
       - ./data:/app/data
+      - ./models:/app/models  
     ports:
-      - "8000:8000"  # Порт для FastAPI
+      - "8000:8000"
     command: >
       sh -c "
       echo '🚀 Запуск FastAPI на порту 8000...' &&
-      uvicorn app.fastapi_app:app --host 0.0.0.0 --port 8000 &
+      uvicorn app.api.fastapi_app:app --host 0.0.0.0 --port 8000 --reload &
+      UVICORN_PID=$$! &&
       echo '🤖 Запуск Telegram бота...' &&
-      python -u -m app.main_app
+      python -u -m app.main_app ||
+      (echo '❌ Telegram бот упал, останавливаем FastAPI...' && kill $$UVICORN_PID)
       "
