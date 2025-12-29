@@ -18,3 +18,4 @@ services:
       uvicorn app.fastapi_app:app --host 0.0.0.0 --port 8000 &
       echo '🤖 Запуск Telegram бота...' &&
       python -u -m app.main_app
+      "
