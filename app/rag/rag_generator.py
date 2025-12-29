@@ -1,4 +1,4 @@
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from ..llm.llm_base import BaseLLM
 from ..schemas import Document
 
@@ -6,8 +6,19 @@ from ..schemas import Document
 class Generator:
     """Generator для создания ответов на основе контекста"""
     
-    def __init__(self, llm: BaseLLM):
+    def __init__(self, llm: BaseLLM, system_prompt: Optional[str] = None):
+        """
+        Инициализация генератора.
+        
+        Args:
+            llm: Экземпляр LLM
+            system_prompt: Системный промпт (опционально)
+        """
         self.llm = llm
+        self.system_prompt = system_prompt or """Ты полезный AI ассистент. 
+        Отвечай на русском языке кратко и по существу.
+        Используй информацию из контекста для ответа на вопросы.
+        Если в контексте нет информации для ответа, скажи об этом честно."""
     
     def _create_rag_prompt(
         self,
@@ -33,10 +44,7 @@ class Generator:
 Вопрос: {query}
 
 Инструкции:
-- Используй информацию из контекста для ответа
-- Если в контексте нет информации для ответа, скажи об этом
-- Отвечай на русском языке
-- Будь кратким и точным
+{self.system_prompt}
 
 Ответ:"""
         
