@@ -118,3 +118,21 @@ class RAGPipeline:
         """
         response = await self.query(question, chat_history)
         return response.answer
+    
+    async def process_query(
+        self,
+        query: str,
+        chat_history: Optional[List[Dict[str, str]]] = None
+    ) -> str:
+        """
+        Алиас для совместимости со старым кодом.
+        Возвращает только текст ответа.
+        
+        Args:
+            query: Вопрос пользователя
+            chat_history: История диалога
+            
+        Returns:
+            Текст ответа
+        """
+        return await self.ask(query, chat_history)
