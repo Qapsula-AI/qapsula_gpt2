@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y \
     g++ \
     make \
     cmake \
-    net-tools \          # для netstat
+    net-tools \         
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -22,4 +22,4 @@ COPY . .
 ENV PYTHONPATH=/app
 
 # Запускаем приложение через модуль Python
-CMD ["python", "-m", "app.main_app"]
+CMD ["sh", "-c", "uvicorn app.fastapi_app:app --host 0.0.0.0 --port 8000 & exec python -u -m app.main_app"]
