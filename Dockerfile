@@ -9,7 +9,10 @@ RUN apt-get update && apt-get install -y \
     net-tools \         
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+# Создаем директорию проекта
+RUN mkdir -p /opt/qapsula_gpt2
+
+WORKDIR /opt/qapsula_gpt2
 
 # Копируем requirements и устанавливаем зависимости
 COPY requirements.txt .
@@ -18,8 +21,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Копируем весь проект
 COPY . .
 
-# Добавляем /app в PYTHONPATH
-ENV PYTHONPATH=/app
+# Копируем .bashrc в домашнюю директорию root
+COPY .bashrc /root/.bashrc
+
+# Добавляем /opt/qapsula_gpt2 в PYTHONPATH
+ENV PYTHONPATH=/opt/qapsula_gpt2
 
 # Запускаем приложение через модуль Python
 # main_app.py сам запустит FastAPI (uvicorn) и Telegram ботов
