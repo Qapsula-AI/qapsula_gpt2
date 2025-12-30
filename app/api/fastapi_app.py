@@ -651,7 +651,7 @@ else:
             Это позволяет Vue Router работать в режиме history mode.
             """
             # Пропускаем API маршруты и документацию
-            if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("redoc"):
+            if full_path.startswith("api") or full_path.startswith("docs") or full_path.startswith("redoc") or full_path.startswith("health"):
                 raise HTTPException(status_code=404, detail="Not found")
 
             # Пытаемся найти конкретный файл
