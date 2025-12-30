@@ -2,7 +2,9 @@
 Telegram бот с поддержкой мультитенантности.
 Каждый бот работает с отдельной базой знаний через RAG Manager.
 """
+import asyncio
 from telegram import Update
+from telegram.constants import ChatAction
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -160,10 +162,10 @@ class TelegramBot:
         username = update.effective_user.username or "Unknown"
         
         print(f"📩 [{self.tenant_id}] Сообщение от {username}: {user_message[:50]}...")
-        
-        # Показываем индикатор печатания
-        await update.message.chat.send_action(action="typing")
-        
+
+        # Показываем индикатор печатания (отключено из-за проблем с topics в Telegram)
+        # await update.message.chat.send_action(action=ChatAction.TYPING)
+
         # Получаем RAG pipeline
         pipeline = self.rag_manager.get_pipeline(self.tenant_id)
         
@@ -222,20 +224,29 @@ class TelegramBot:
         """Запуск бота (polling)."""
         if not self.application:
             raise RuntimeError("Бот не инициализирован. Вызовите initialize() сначала.")
-        
+
         print(f"🚀 Запуск polling для бота {self.tenant_id}...")
-        
-        # Инициализируем приложение
+
+        # Инициализируем и запускаем приложение
         await self.application.initialize()
         await self.application.start()
-        
-        # Запускаем polling
+
+        # Запускаем polling в фоновом режиме
         await self.application.updater.start_polling(
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True
         )
-        
+
         print(f"✅ Бот {self.tenant_id} успешно запущен и работает")
+
+        # Держим бота работающим бесконечно
+        try:
+            # Используем idle() вместо Event().wait() для корректной работы
+            while True:
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            print(f"🛑 Получен сигнал остановки для бота {self.tenant_id}")
+            raise
     
     async def stop(self):
         """Остановка бота."""

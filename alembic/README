@@ -1,0 +1,18 @@
+Alembic миграции для qapsula
+
+Основные команды:
+
+# Создать новую миграцию автоматически
+alembic revision --autogenerate -m "описание изменений"
+
+# Применить все миграции
+alembic upgrade head
+
+# Откатить последнюю миграцию
+alembic downgrade -1
+
+# Посмотреть текущую версию БД
+alembic current
+
+# Посмотреть историю миграций
+alembic history

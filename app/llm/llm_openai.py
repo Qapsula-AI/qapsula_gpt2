@@ -1,90 +1,105 @@
-from typing import List, Dict, Optional
-from openai import AsyncOpenAI
+from typing import List, Dict, Optional, AsyncGenerator
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from .llm_base import BaseLLM
 import os
 
 
 class OpenAILLM(BaseLLM):
-    """OpenAI GPT реализация"""
-    
+    """OpenAI GPT реализация через LangChain провайдер"""
+
     def __init__(
-        self, 
+        self,
         model_name: str = "gpt-4-turbo-preview",
         temperature: float = 0.7,
-        api_key: Optional[str] = None
+        api_key: Optional[str] = None,
+        max_tokens: int = 1000
     ):
         super().__init__(model_name, temperature)
-        self.client = AsyncOpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
-    
+        self.max_tokens = max_tokens
+        self.client = ChatOpenAI(
+            model=model_name,
+            temperature=temperature,
+            api_key=api_key or os.getenv("OPENAI_API_KEY"),
+            max_tokens=max_tokens
+        )
+
+    def _prepare_messages(
+        self,
+        prompt: str,
+        context: Optional[List[Dict[str, str]]] = None
+    ) -> List:
+        """Подготовка сообщений для LangChain"""
+        messages = []
+
+        # Системное сообщение
+        messages.append(SystemMessage(
+            content="Ты полезный AI ассистент. Отвечай на русском языке кратко и по существу."
+        ))
+
+        # Добавляем контекст
+        if context:
+            for msg in context:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+
+                if role == "user":
+                    messages.append(HumanMessage(content=content))
+                elif role == "assistant":
+                    messages.append(AIMessage(content=content))
+
+        # Добавляем текущий промпт
+        messages.append(HumanMessage(content=prompt))
+
+        return messages
+
     async def generate(
         self,
         prompt: str,
         context: Optional[List[Dict[str, str]]] = None,
-        max_tokens: int = 1000
+        max_tokens: Optional[int] = None
     ) -> str:
-        """Генерация ответа через OpenAI API"""
-        messages = []
-        
-        # Системное сообщение
-        messages.append({
-            "role": "system",
-            "content": "Ты полезный AI ассистент. Отвечай на русском языке кратко и по существу."
-        })
-        
-        # Добавляем контекст
-        if context:
-            messages.extend(context)
-        
-        # Добавляем текущий промпт
-        messages.append({
-            "role": "user",
-            "content": prompt
-        })
-        
+        """Генерация ответа через OpenAI API (LangChain)"""
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model_name,
-                messages=messages,
-                temperature=self.temperature,
-                max_tokens=max_tokens
-            )
-            return response.choices[0].message.content
+            messages = self._prepare_messages(prompt, context)
+
+            # Используем переданный max_tokens или значение по умолчанию
+            if max_tokens is not None:
+                # Временно обновляем max_tokens для этого вызова
+                original_max_tokens = self.client.max_tokens
+                self.client.max_tokens = max_tokens
+                response = await self.client.ainvoke(messages)
+                self.client.max_tokens = original_max_tokens
+            else:
+                response = await self.client.ainvoke(messages)
+
+            return response.content
         except Exception as e:
             return f"Ошибка при генерации ответа: {str(e)}"
-    
+
     async def generate_stream(
         self,
         prompt: str,
         context: Optional[List[Dict[str, str]]] = None,
-        max_tokens: int = 1000
-    ):
-        """Генерация ответа с потоковой передачей"""
-        messages = []
-        
-        messages.append({
-            "role": "system",
-            "content": "Ты полезный AI ассистент. Отвечай на русском языке кратко и по существу."
-        })
-        
-        if context:
-            messages.extend(context)
-        
-        messages.append({
-            "role": "user",
-            "content": prompt
-        })
-        
+        max_tokens: Optional[int] = None
+    ) -> AsyncGenerator[str, None]:
+        """Генерация ответа с потоковой передачей через LangChain"""
         try:
-            stream = await self.client.chat.completions.create(
-                model=self.model_name,
-                messages=messages,
-                temperature=self.temperature,
-                max_tokens=max_tokens,
-                stream=True
-            )
-            
-            async for chunk in stream:
-                if chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+            messages = self._prepare_messages(prompt, context)
+
+            # Используем переданный max_tokens или значение по умолчанию
+            if max_tokens is not None:
+                original_max_tokens = self.client.max_tokens
+                self.client.max_tokens = max_tokens
+
+                async for chunk in self.client.astream(messages):
+                    if chunk.content:
+                        yield chunk.content
+
+                self.client.max_tokens = original_max_tokens
+            else:
+                async for chunk in self.client.astream(messages):
+                    if chunk.content:
+                        yield chunk.content
         except Exception as e:
             yield f"Ошибка: {str(e)}"

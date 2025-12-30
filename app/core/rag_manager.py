@@ -14,7 +14,7 @@ from app.rag.rag_ingest import DocumentIngestor
 from app.vectorstore.vectorstore_faiss import FAISSVectorStore
 from app.llm.llm_openrouter import OpenRouterLLM
 from app.llm.llm_openai import OpenAILLM
-from app.llm.llm_llamacpp import LlamaCppLLM, SaigaLlamaCppLLM, MistralLlamaCppLLM
+# from app.llm.llm_llamacpp import LlamaCppLLM, SaigaLlamaCppLLM, MistralLlamaCppLLM  # Локальные модели не используются
 
 
 class RAGManager:
@@ -155,51 +155,52 @@ class RAGManager:
             api_key = config.get('api_key') or os.getenv('OPENAI_API_KEY')
             if not api_key:
                 raise ValueError(f"OPENAI_API_KEY не найден для {tenant_id}")
-            
+
             model = config.get('model', 'gpt-4')
             print(f"   Модель: {model}")
-            
+
             return OpenAILLM(
                 model_name=model,
                 api_key=api_key,
                 temperature=config.get('temperature', 0.7),
                 max_tokens=config.get('max_tokens', 1000)
             )
-        
-        elif llm_type == 'local':
-            model_path = config.get('model_path')
-            if not model_path:
-                raise ValueError(f"model_path не указан для {tenant_id}")
-            
-            model_type = config.get('model_type', 'saiga')
-            n_gpu_layers = config.get('n_gpu_layers', 0)
-            
-            print(f"   Модель: {model_path}")
-            print(f"   Тип: {model_type}")
-            print(f"   GPU layers: {n_gpu_layers}")
-            
-            if model_type == 'saiga':
-                return SaigaLlamaCppLLM(
-                    model_path=model_path,
-                    n_gpu_layers=n_gpu_layers,
-                    temperature=config.get('temperature', 0.7),
-                    n_ctx=config.get('n_ctx', 4096)
-                )
-            elif model_type == 'mistral':
-                return MistralLlamaCppLLM(
-                    model_path=model_path,
-                    n_gpu_layers=n_gpu_layers,
-                    temperature=config.get('temperature', 0.7),
-                    n_ctx=config.get('n_ctx', 4096)
-                )
-            else:
-                return LlamaCppLLM(
-                    model_path=model_path,
-                    n_gpu_layers=n_gpu_layers,
-                    temperature=config.get('temperature', 0.7),
-                    n_ctx=config.get('n_ctx', 4096)
-                )
-        
+
+        # Локальные LLM модели закомментированы (llama-cpp-python удален из зависимостей)
+        # elif llm_type == 'local':
+        #     model_path = config.get('model_path')
+        #     if not model_path:
+        #         raise ValueError(f"model_path не указан для {tenant_id}")
+        #
+        #     model_type = config.get('model_type', 'saiga')
+        #     n_gpu_layers = config.get('n_gpu_layers', 0)
+        #
+        #     print(f"   Модель: {model_path}")
+        #     print(f"   Тип: {model_type}")
+        #     print(f"   GPU layers: {n_gpu_layers}")
+        #
+        #     if model_type == 'saiga':
+        #         return SaigaLlamaCppLLM(
+        #             model_path=model_path,
+        #             n_gpu_layers=n_gpu_layers,
+        #             temperature=config.get('temperature', 0.7),
+        #             n_ctx=config.get('n_ctx', 4096)
+        #         )
+        #     elif model_type == 'mistral':
+        #         return MistralLlamaCppLLM(
+        #             model_path=model_path,
+        #             n_gpu_layers=n_gpu_layers,
+        #             temperature=config.get('temperature', 0.7),
+        #             n_ctx=config.get('n_ctx', 4096)
+        #         )
+        #     else:
+        #         return LlamaCppLLM(
+        #             model_path=model_path,
+        #             n_gpu_layers=n_gpu_layers,
+        #             temperature=config.get('temperature', 0.7),
+        #             n_ctx=config.get('n_ctx', 4096)
+        #         )
+
         else:
             raise ValueError(f"Неизвестный тип LLM: {llm_type}")
     
@@ -275,10 +276,20 @@ class RAGManager:
         
         # Конфигурация по умолчанию из .env
         print(f"📄 Использование конфигурации по умолчанию из .env")
-        
+
+        llm_type = os.getenv('LLM_TYPE', 'openrouter')
+
+        # Выбираем модель в зависимости от провайдера
+        if llm_type == 'openrouter':
+            default_model = os.getenv('OPENROUTER_MODEL', 'openai/gpt-4o-mini')
+        elif llm_type == 'openai':
+            default_model = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
+        else:
+            default_model = 'gpt-4o-mini'
+
         return {
-            'llm_type': os.getenv('LLM_TYPE', 'openrouter'),
-            'model': os.getenv('OPENROUTER_MODEL', 'openai/gpt-4o-mini'),
+            'llm_type': llm_type,
+            'model': default_model,
             'api_key': None,  # Будет взят из .env в _initialize_llm
             'temperature': float(os.getenv('TEMPERATURE', '0.7')),
             'max_tokens': int(os.getenv('MAX_TOKENS', '1000')),

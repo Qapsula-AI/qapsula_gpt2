@@ -22,4 +22,5 @@ COPY . .
 ENV PYTHONPATH=/app
 
 # Запускаем приложение через модуль Python
-CMD ["sh", "-c", "uvicorn app.fastapi_app:app --host 0.0.0.0 --port 8000 & exec python -u -m app.main_app"]
+# main_app.py сам запустит FastAPI (uvicorn) и Telegram ботов
+CMD ["python", "-u", "-m", "app.main_app"]

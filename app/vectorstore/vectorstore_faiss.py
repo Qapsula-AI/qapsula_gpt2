@@ -1,7 +1,7 @@
 from typing import List, Tuple
 import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
+from langchain_openai import OpenAIEmbeddings
 import pickle
 import os
 from .vectorstore_base import BaseVectorStore
@@ -9,11 +9,19 @@ from ..schemas import Document
 
 
 class FAISSVectorStore(BaseVectorStore):
-    """FAISS векторное хранилище с sentence-transformers"""
-    
-    def __init__(self, embedding_model: str = "paraphrase-multilingual-mpnet-base-v2"):
-        self.encoder = SentenceTransformer(embedding_model)
-        self.dimension = self.encoder.get_sentence_embedding_dimension()
+    """FAISS векторное хранилище с OpenAI Embeddings"""
+
+    def __init__(self, embedding_model: str = "text-embedding-3-small"):
+        """
+        Args:
+            embedding_model: OpenAI модель эмбеддингов
+                - text-embedding-3-small (1536 dims, $0.02/1M tokens) - рекомендуется
+                - text-embedding-3-large (3072 dims, $0.13/1M tokens)
+                - text-embedding-ada-002 (1536 dims, $0.10/1M tokens) - legacy
+        """
+        self.embeddings = OpenAIEmbeddings(model=embedding_model)
+        # Размерность для text-embedding-3-small и ada-002
+        self.dimension = 1536 if "small" in embedding_model or "ada" in embedding_model else 3072
         self.index = faiss.IndexFlatL2(self.dimension)
         self.documents: List[Document] = []
     
@@ -21,17 +29,18 @@ class FAISSVectorStore(BaseVectorStore):
         """Добавить документы в хранилище"""
         if not documents:
             return
-        
-        # Генерируем эмбеддинги
+
+        # Генерируем эмбеддинги через OpenAI API
         texts = [doc.content for doc in documents]
-        embeddings = self.encoder.encode(texts, convert_to_numpy=True)
-        
+        embeddings_list = await self.embeddings.aembed_documents(texts)
+        embeddings_array = np.array(embeddings_list, dtype='float32')
+
         # Добавляем в FAISS индекс
-        self.index.add(embeddings.astype('float32'))
-        
+        self.index.add(embeddings_array)
+
         # Сохраняем документы
         for i, doc in enumerate(documents):
-            doc.embedding = embeddings[i].tolist()
+            doc.embedding = embeddings_list[i]
             self.documents.append(doc)
     
     async def similarity_search(
@@ -42,14 +51,15 @@ class FAISSVectorStore(BaseVectorStore):
         """Поиск похожих документов"""
         if self.index.ntotal == 0:
             return []
-        
-        # Генерируем эмбеддинг запроса
-        query_embedding = self.encoder.encode([query], convert_to_numpy=True)
-        
+
+        # Генерируем эмбеддинг запроса через OpenAI API
+        query_embedding_list = await self.embeddings.aembed_query(query)
+        query_embedding = np.array([query_embedding_list], dtype='float32')
+
         # Ищем похожие векторы
         k = min(k, self.index.ntotal)
-        distances, indices = self.index.search(query_embedding.astype('float32'), k)
-        
+        distances, indices = self.index.search(query_embedding, k)
+
         # Формируем результаты
         results = []
         for i, idx in enumerate(indices[0]):
@@ -57,7 +67,7 @@ class FAISSVectorStore(BaseVectorStore):
                 doc = self.documents[idx]
                 similarity = 1 / (1 + distances[0][i])  # Конвертируем расстояние в similarity
                 results.append((doc, similarity))
-        
+
         return results
     
     async def save(self, path: str):

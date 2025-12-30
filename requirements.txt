@@ -1,17 +1,23 @@
-python-telegram-bot==20.7
+python-telegram-bot>=21.0
 python-dotenv==1.0.0
 faiss-cpu==1.13.2
-sentence-transformers>=2.7.0
-pydantic>=2.0,<3.0  # Убрали жесткую версию
-aiohttp==3.9.1
-openai>=1.0.0
-tiktoken==0.5.2
-llama-cpp-python>=0.3.0
-langchain>=0.1.0,<0.2.0  # Обновили до более гибкой версии
-langchain-community>=0.0.10,<0.1.0
+# sentence-transformers убран - используем OpenAI Embeddings
+pydantic>=2.0,<3.0
+aiohttp>=3.10.0
+langchain-openai>=0.2.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
 fastapi>=0.104.0,<0.110.0
 uvicorn==0.24.0
-numpy>=1.25.0,<2.0.0
-chromadb>=0.4.22,<0.5.0  # Обновили до версии с поддержкой pydantic 2
-pyyaml==6.0
+httpx>=0.27.0
+numpy>=2.0.0
+pyyaml>=6.0.1
 sqlalchemy>=2.0.0,<2.1.0
+psycopg2-binary>=2.9.0
+alembic>=1.13.0
+
+# JWT и авторизация
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+bcrypt==4.0.1
+python-multipart>=0.0.6

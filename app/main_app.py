@@ -66,9 +66,10 @@ async def run_fastapi(rag_manager: RAGManager):
         fastapi_app.state.rag_manager = rag_manager
         
         # Конфигурация Uvicorn
+        # Для Docker используем 0.0.0.0, для локального запуска - 127.0.0.1
         config = uvicorn.Config(
             fastapi_app,
-            host="0.0.0.0",
+            host=os.getenv("API_HOST", "0.0.0.0"),
             port=int(os.getenv("API_PORT", 8000)),
             log_level="info",
             access_log=True

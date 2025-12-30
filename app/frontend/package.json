@@ -1,0 +1,19 @@
+{
+  "name": "qapsula-frontend",
+  "version": "1.0.0",
+  "description": "Vue.js фронтенд для Qapsula RAG системы",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.4.0",
+    "vue-router": "^4.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.0",
+    "vite": "^5.0.0"
+  }
+}

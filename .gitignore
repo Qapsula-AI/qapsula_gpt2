@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 *.so
 .claude
+Claude.md
 .Python
 build/
 develop-eggs/
