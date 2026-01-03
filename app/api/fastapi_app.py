@@ -576,48 +576,46 @@ DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
 VITE_DEV_SERVER = os.getenv("VITE_DEV_SERVER", "http://host.docker.internal:5173")
 
 if DEV_MODE:
-    # Dev режим - проксируем на Vite dev server для hot reload
+    # Dev режим - используем обработчик 404 для проксирования на Vite
     import httpx
+    from starlette.requests import Request
+    from starlette.responses import StreamingResponse
+    from fastapi.exceptions import HTTPException as FastAPIHTTPException
 
     print(f"🔥 DEV MODE: Проксирование фронтенда на {VITE_DEV_SERVER}")
     print(f"   Запустите Vite: cd app/frontend && npm run dev")
 
-    from starlette.requests import Request
-    from starlette.responses import StreamingResponse
-    import httpx
+    @app.exception_handler(404)
+    async def proxy_404_to_vite(request: Request, exc: Exception):
+        """
+        Обработчик 404 ошибок - проксирует на Vite dev server.
+        Этот подход позволяет Gradio и API маршрутам работать нормально,
+        а все остальные запросы проксируются на Vite.
+        """
+        # Получаем путь из URL
+        full_path = request.url.path.lstrip("/")
 
-    @app.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
-    async def proxy_to_vite(request: Request, full_path: str):
-        """
-        В dev режиме проксируем ВСЕ запросы на Vite dev server.
-        Поддерживает GET, POST и другие методы для правильной работы HMR.
-        """
-        # Пропускаем API маршруты и документацию
-        if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("redoc"):
-            raise HTTPException(status_code=404, detail="Not found")
+        # DEBUG: Вывод пути для отладки
+        print(f"DEBUG 404 handler: path = '{full_path}'")
 
         # Формируем URL для Vite
         url = f"{VITE_DEV_SERVER}/{full_path}"
         if request.url.query:
             url = f"{url}?{request.url.query}"
 
-        # Проксируем запрос
+        # Проксируем запрос на Vite
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
                 # Получаем тело запроса если есть
                 body = await request.body() if request.method in ["POST", "PUT", "PATCH"] else None
 
-                # Делаем запрос к Vite БЕЗ заголовков - избегаем проблем с кодировкой
+                # Делаем запрос к Vite
                 response = await client.request(
                     method=request.method,
                     url=url,
                     content=body,
                     follow_redirects=True
                 )
-
-                # Используем StreamingResponse для прямого проксирования
-                # Это избегает проблем с кодировкой
-                from fastapi.responses import StreamingResponse
 
                 # Создаем async generator для стриминга
                 async def generate():
@@ -629,13 +627,19 @@ if DEV_MODE:
                     media_type=response.headers.get("content-type", "text/html")
                 )
             except httpx.ConnectError:
-                raise HTTPException(
+                # Vite не запущен - возвращаем оригинальную 404 ошибку
+                return StreamingResponse(
+                    content=b'{"detail": "Vite dev server not running. Run: cd app/frontend && npm run dev"}',
                     status_code=503,
-                    detail=f"Vite dev server не запущен. Запустите: cd app/frontend && npm run dev"
+                    media_type="application/json"
                 )
             except Exception as e:
                 print(f"❌ Ошибка проксирования: {e}")
-                raise HTTPException(status_code=500, detail=str(e))
+                return StreamingResponse(
+                    content=f'{{"detail": "{str(e)}"}}'.encode(),
+                    status_code=500,
+                    media_type="application/json"
+                )
 else:
     # Production режим - обслуживаем собранные статические файлы
     STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
@@ -672,3 +676,88 @@ else:
     else:
         print(f"⚠️  Директория {STATIC_DIR} не найдена. Фронтенд не будет обслуживаться.")
         print(f"   Для сборки фронтенда выполните: cd app/frontend && npm install && npm run build")
+
+
+# === Gradio ChatInterface с авторизацией ===
+
+# Middleware для проверки авторизации перед доступом к Gradio
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse, RedirectResponse
+from jose import jwt, JWTError
+import os
+
+class GradioAuthMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware для защиты Gradio ChatInterface с помощью JWT авторизации.
+    Проверяет токен перед доступом к /chat-ui/*
+    """
+    async def dispatch(self, request, call_next):
+        # Проверяем только запросы к /chat-ui
+        if request.url.path.startswith("/chat-ui"):
+            # Пытаемся получить токен из заголовка Authorization
+            auth_header = request.headers.get("Authorization")
+            token = None
+
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header.split(" ")[1]
+            else:
+                # Если нет в заголовке, пытаемся получить из cookie
+                token = request.cookies.get("access_token")
+
+            if not token:
+                # Токен не найден
+                if request.url.path == "/chat-ui" or request.url.path == "/chat-ui/":
+                    # Редирект на страницу логина для основной страницы
+                    return RedirectResponse(url="/", status_code=302)
+                else:
+                    # 401 для API запросов и WebSocket
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "Требуется авторизация"}
+                    )
+
+            # Проверяем валидность токена
+            try:
+                SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
+                ALGORITHM = "HS256"
+                payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+                username = payload.get("sub")
+
+                if username is None:
+                    raise JWTError("Invalid token")
+
+                # Токен валиден - пропускаем запрос дальше
+                # Добавляем username в request.state для использования в Gradio
+                request.state.username = username
+
+            except JWTError:
+                # Токен невалиден
+                if request.url.path == "/chat-ui" or request.url.path == "/chat-ui/":
+                    return RedirectResponse(url="/", status_code=302)
+                else:
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "Неверный токен авторизации"}
+                    )
+
+        # Пропускаем запрос дальше
+        response = await call_next(request)
+        return response
+
+# Добавляем middleware ПЕРЕД монтированием Gradio
+app.add_middleware(GradioAuthMiddleware)
+
+# Монтируем Gradio приложение
+# ВАЖНО: Монтируем ПОСЛЕ всех catch-all маршрутов и middleware
+try:
+    import gradio as gr
+    from app.api.gradio_chat import gradio_app
+
+    # Монтируем Gradio приложение используя gr.mount_gradio_app
+    # Это правильно настраивает WebSocket пути
+    app = gr.mount_gradio_app(app, gradio_app, path="/chat-ui")
+    print("✅ Gradio ChatInterface доступен на /chat-ui (защищено JWT авторизацией)")
+except ImportError as e:
+    print(f"⚠️  Gradio не установлен, /chat-ui недоступен: {e}")
+except Exception as e:
+    print(f"⚠️  Ошибка инициализации Gradio: {e}")

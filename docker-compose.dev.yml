@@ -27,15 +27,15 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      - PYTHONPATH=/app
+      - PYTHONPATH=/opt/qapsula_gpt2
       - PYTHONUNBUFFERED=1
       - API_HOST=0.0.0.0
       - DATABASE_URL=postgresql://postgres:postgres_dev_password@postgres:5432/qapsula_dev
     env_file:
       - .env
     volumes:
-      - ./data:/app/data
-      - ./app:/app/app  # Hot reload для разработки
+      - ./data:/opt/qapsula_gpt2/data
+      - ./app:/opt/qapsula_gpt2/app  # Hot reload для разработки
     ports:
       - "8000:8000"
     command: python -u -m app.main_app

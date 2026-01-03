@@ -37,9 +37,12 @@ export function useAuth() {
 
       const data = await response.json()
 
-      // Сохраняем токен
+      // Сохраняем токен в localStorage (для Vue.js)
       token.value = data.access_token
       localStorage.setItem('access_token', data.access_token)
+
+      // Сохраняем токен в cookie (для Gradio и других подприложений)
+      document.cookie = `access_token=${data.access_token}; path=/; max-age=86400; SameSite=Lax`
 
       // Загружаем данные пользователя
       await fetchUser()
@@ -73,6 +76,10 @@ export function useAuth() {
       token.value = null
       user.value = null
       localStorage.removeItem('access_token')
+
+      // Удаляем cookie с токеном
+      document.cookie = 'access_token=; path=/; max-age=0'
+
       router.push('/login')
     }
   }
